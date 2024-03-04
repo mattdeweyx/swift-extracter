@@ -16,9 +16,8 @@ class SwiftScanner {
     constructor() {
         // Initialize properties
         this.modulesList = {};
-        this.designSystemModules = [];
         this.thirdPartyDependencies = [];
-        this.codebaseComponents = {};
+        this.codebaseComponents = [];
         this.codebaseComponentsPath = "codebase_components.json";
         this.projectComponents = [];
         this.componentsDataset = {};
@@ -27,20 +26,18 @@ class SwiftScanner {
         this.parser = new Parser();
         this.parser.setLanguage(Swift);
         this.projectModulesList = [];
+        this.externalModules = {};
     }
 
     /**
      * Initialize method to initialize the scanner.
      */
-    async initialize(designSystemModules = []) {
+    async initialize(designSystemModules=[]) {
         try {
-            // Initialize project modules list
-            //this.getProjectModulesListFromDescribe();
-            this.getDebugYaml();
             this.designSystemModules = designSystemModules;
-            // Load existing dataset from JSON file if exists
-            const datasetContent = await fs.readFile(this.datasetFilePath);
-            this.componentsDataset = JSON.parse(datasetContent);
+            await this.initiateBuild();
+            // Initialize project modules list
+            await this.getDebugYaml(); // Wait for projectModulesList to be populated
         } catch (error) {
             if (error.code === 'ENOENT') {
                 // Dataset file does not exist, recreate it
@@ -51,6 +48,141 @@ class SwiftScanner {
                 await this.saveDataset(); // Recreate dataset file
             }
         }
+    }
+
+    async loadDataset() {
+        try {
+          // Read the content of the JSON file
+          const datasetContent = await fs.readFile(this.datasetFilePath);
+      
+          // Parse the JSON content into an object
+          const dataset = JSON.parse(datasetContent);
+      
+          this.componentsDataset = dataset;
+        } catch (error) {
+          console.error('Error loading dataset:', error);
+        }
+      }
+
+    getDebugYaml() {
+        const fss = require('fs');
+        const yaml = require('js-yaml');
+    
+        return new Promise((resolve, reject) => {
+            fss.readFile('.build/debug.yaml', 'utf8', (err, fileData) => {
+                if (err) {
+                    console.error('Error reading file:', err);
+                    reject(err);
+                    return;
+                }
+                /*
+>>> o[56600:56900]
+'-gnu/debug/Spectre.build/Reporters.swift.o","/root/figma-export/.build/x86_64-unknown-linux-gnu/debug/Spectre.build/XCTest.swift.o","/root/figma-export/.build/x86_64-unknown-linux-gnu/debug/Spectre.swiftmodule"]\n    outputs: ["<Spectre-debug.module>"]\n\n  "<Stencil-debug.module>":\n    tool: phony\n   '
+>>>
+
+                */
+    
+                try {
+                    // Parse the YAML data
+                    const data = yaml.load(fileData);
+                    // Extract the modules from the commands data
+                    const inputs = data.commands.PackageStructure.inputs;
+                    const moduleKeys = Object.keys(data.commands).filter(
+                        key => key.startsWith('C.')
+                    );
+    
+                    moduleKeys
+                        .filter(mod => (
+                            data.commands[mod].inputs[0].includes('.build/checkouts') ||
+                            !data.commands[mod].inputs[0].includes('.build')
+                        ))
+                        .map(mod => {
+                            const originalPath = data.commands[mod].inputs[0];
+                            let path = '';
+                            if (originalPath.includes('.build/checkouts')) {
+                                const parentPath = originalPath.split('.build/checkouts')[0];
+                                const splittedLibrary = originalPath.split('.build/checkouts')[1].split('/');
+                                splittedLibrary.pop();
+                                const library = splittedLibrary.join('/');
+                                 path = `${parentPath}.build/checkouts${library}`;
+                            } else {
+                                const splittedPath = originalPath.split('/');
+                                splittedPath.pop();
+                                path = splittedPath.join('/');
+                            }
+                            this.projectModulesList.push({
+                                name: mod.substring(2, mod.lastIndexOf("-")),
+                                path: path,
+                                originalPath: originalPath,
+                                isThirdParty: originalPath.includes('.build/checkouts')
+                            });
+                        }); 
+                    resolve();
+                } catch (error) {
+                    console.error('Error parsing YAML:', error);
+                    reject(error);
+                }
+            });
+        });
+    }
+
+
+    async generateDataset() {
+        console.log('Generating a dataset of importable components...');
+        try {
+            // Create an array to store all asynchronous tasks
+            const tasks = this.projectModulesList.map(async module => {
+                try {
+                    // Read the file content asynchronously
+                    const filePath = module.originalPath; // Adjust this according to your project structure
+                    const fileContent = await fs.readFile(filePath, 'utf-8');
+    
+                    // Calculate the offset using the file content
+                    const offset = this.getOffset(fileContent, filePath);
+    
+                    // Construct the sourcekitten command
+                    const command = `sourcekitten complete --file ${module.originalPath} --offset ${offset} --spm-module ${module.name} -- ''`;
+    
+                    // Execute the sourcekitten command and parse the output
+                    const output = this.executeCommand(command);
+                    const completeSuggestions = JSON.parse(output);
+                    this.updateDataset(completeSuggestions);
+                } catch (error) {
+                    console.error(`Error generating dataset for module ${module.name}: ${error.message}`);
+                }
+            });
+            // Execute all asynchronous tasks concurrently
+            await Promise.all(tasks);
+        } catch (error) {
+            console.error(`Error generating dataset: ${error.message}`);
+        }
+    }
+    
+    async initiateBuild() {
+        const { spawn } = require('child_process');
+
+        // Create a Promise to await the completion of the build process
+        return new Promise((resolve, reject) => {
+            console.log(`Initiating build...`);
+
+            // Run swift build
+            const buildProcess = spawn('swift', ['build']);
+
+            // Listen for data on stdout and stderr
+            buildProcess.stdout.on('data', (data) => {
+                // Check if the data contains the "Building" keyword
+                if (data.toString().includes('Building')) {
+                    buildProcess.kill(); // Kill the swift build process
+                    resolve(); // Resolve the Promise to signal completion
+                }
+            });
+
+            // Listen for errors
+            buildProcess.on('error', (error) => {
+                console.error(`Error occurred during build: ${error}`);
+                reject(error); // Reject the Promise if an error occurs
+            });
+        });
     }
 
     /**
@@ -78,12 +210,27 @@ class SwiftScanner {
      */
     async saveDataset() {
         try {
+            const data = JSON.stringify(this.componentsDataset, null, 2);
             // Save the updated dataset to the JSON file
-            await fs.writeFile(this.datasetFilePath, JSON.stringify(this.componentsDataset, null, 2));
+            await fs.writeFile(this.datasetFilePath, data);
         } catch (error) {
             console.log(`Error saving dataset: ${error.message}`);
         }
     }
+
+
+
+    validPath(directoryPath) {
+        // Iterate through each module in the projectModulesList
+        for (const module of this.projectModulesList) {
+            // Check if the module's path is a subdirectory of the provided directory path
+            if (module.path.includes(directoryPath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     /**
      * Scan files recursively method to recursively scan Swift files in a directory.
@@ -97,8 +244,8 @@ class SwiftScanner {
             // Check if the item is a directory
             if (stats.isDirectory()) {
                 // Check if the provided directory path includes any of the module paths
-                const moduleName = this.getModuleName(filePath);
-                if (!moduleName) {
+                const validPath = this.validPath(filePath);
+                if (!validPath) {
                     console.log("Directory path does not include any module path. Please provide a valid scan path.");
                     console.log("Available module paths:");
                     this.projectModulesList.forEach(module => console.log(` - ${module.path}`));
@@ -132,6 +279,24 @@ class SwiftScanner {
             console.log("Error scanning directory:", error.message);
         }
     }
+
+    /**
+     * Checks if the provided directory path includes any valid module path.
+     * @param {string} directoryPath - The directory path to validate.
+     * @returns {boolean} - True if the directory path includes a valid module path, false otherwise.
+     */
+    validPath(directoryPath) {
+        // Iterate through each module in the projectModulesList
+        for (const module of this.projectModulesList) {
+            // Check if the module's path is a subdirectory of the provided directory path
+            if (module.path.includes(directoryPath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
 
     /**
      * Get project modules list method to get the list of project modules from Swift Package Manager.
@@ -241,21 +406,16 @@ class SwiftScanner {
     * @param {string} moduleName - Name of the module.
     * @returns {boolean} - True if the module is a third-party dependency, false otherwise.
     */
+
+    
+
     isThirdParty(moduleName) {
-        /*
-            {
-                name: 'stencilswiftkit',
-                url: 'https://github.com/SwiftGen/StencilSwiftKit'
-            }
-        */
-        const lowercaseModuleName = moduleName.toLowerCase();
-        for (const dependency of this.thirdPartyDependencies) {
-            if (dependency.name.toLowerCase() === lowercaseModuleName) {
-                return true;
-            }
-        }
-        return false;
+        // Find the module by name
+        const module = this.projectModulesList.find(mod => mod.name === moduleName);
+        // Return the isThirdParty property if the module is found, otherwise return false
+        return module ? module.isThirdParty : false;
     }
+    
 
     /**
      * Get the module name based on the file path.
@@ -264,7 +424,7 @@ class SwiftScanner {
      */
     getModuleName(filePath) {
         //console.log(filePath);
-        const parentDir = path.resolve(filePath.replace('./', '').trim());
+        const parentDir = path.resolve(filePath);
         //console.log(parentDir);
         for (const module of this.projectModulesList) {
             if (parentDir.includes(module.path)) {
@@ -273,53 +433,6 @@ class SwiftScanner {
         }
         return null;
     }
-    
-    /**
-     * Retrieve complete suggestions for a given file and offset.
-     * @param {string} filePath - Path to the Swift file.
-     * @param {number} offset - Offset within the Swift file.
-     * @param {boolean} tried - Flag indicating whether the 'swift build' command has already been attempted.
-    * @returns {Object|null} - Complete suggestions or null if an error occurred.
-    */
-    getCompleteSuggestions(filePath, offset, tried=false) {
-        // Get the module name for the provided file path
-        const moduleName = this.getModuleName(filePath);
-        if (!moduleName) {
-            console.log(`Module name not found for file: ${filePath}`);
-            return null;
-        }
-        
-        // Construct the sourcekitten command
-        const command = `sourcekitten complete --file ${filePath} --offset ${offset} --spm-module ${moduleName} -- ''`;
-        //console.log(command);
-        try {
-            // Execute the sourcekitten command and parse the output
-            const output = this.executeCommand(command);
-            const completeSuggestions = JSON.parse(output);
-            return completeSuggestions;
-        } catch (error) {
-            // If the error message indicates missing .build/debug.yaml and 'swift build' hasn't been attempted yet
-            if (error.message.includes('.build/debug.yaml') && !tried) {
-                try {
-                    // Execute 'swift build' command with a timeout of 5 seconds
-                    execSync('timeout 12s swift build > /dev/null 2>&1');
-                } catch (timeoutError) {
-                    // Handle timeout error
-                    console.error('Timeout waiting for swift build to complete');
-                    return null;
-                }
-
-                // Retry if the error message does not indicate missing .build/debug.yaml
-                return this.getCompleteSuggestions(filePath, offset, true);
-            } else {
-                // Log and return null for other errors
-                console.log("Error:", error.message);
-                return null;
-            }
-        }
-    }
-
-
 
     /**
      * Process the file content to extract components.
@@ -327,20 +440,6 @@ class SwiftScanner {
      * @param {string} filePath - Path of the file.
      */
     process(fileContent, filePath) {
-        const ast = this.getAst(fileContent);
-        const importedModules = this.getFileImports(ast);
-        const offset = this.getOffset(fileContent, filePath);
-        const notInLibraries = importedModules.some(module => !this.scannedLibraries.has(module));
-        if (notInLibraries) {
-            // Get completion suggestions for the libraries in that file 
-            const completeSuggestions = this.getCompleteSuggestions(filePath, offset);
-            // Update dataset with new components
-            this.updateDataset(completeSuggestions);
-
-            // Update scanned libraries list
-            importedModules.forEach(importedModule => this.scannedLibraries.add(importedModule));
-        }
-        // Now extract components from the file
         this.extractComponents(filePath, fileContent);
     }
 
@@ -348,12 +447,22 @@ class SwiftScanner {
      * Update the dataset with new components.
      * @param {Array} components - Array of components.
      */
+    
     updateDataset(components) {
         components.forEach(component => {
             const moduleName = component.moduleName;
-            this.componentsDataset[moduleName] = [...new Set(this.componentsDataset[moduleName]), component];
+            // Initialize an array for the module name if it doesn't exist
+            if (!this.componentsDataset.hasOwnProperty(moduleName)) {
+                this.componentsDataset[moduleName] = [];
+            }
+            // Add the component to the set
+            this.componentsDataset[moduleName].push(component);
         });
     }
+    
+    
+    
+    
 
     /**
      * Get the abstract syntax tree (AST) from the Swift code.
@@ -510,41 +619,49 @@ class SwiftScanner {
      * @param {string} fileContent - Content of the file containing the components.
      */
     processComponents(components, filePath, fileContent) {
+        // Use a Map to store pre-processed module components for quick access
+        const moduleComponentsMap = new Map();
+    
+        // Pre-process the dataset to reduce complexity in the main loop
+        for (const moduleName in this.componentsDataset) {
+            const processedComponents = [];
+            this.componentsDataset[moduleName].forEach(moduleComponent => {
+                if (moduleComponent.name) {
+                    processedComponents.push({
+                        baseName: moduleComponent.name.split('(')[0].trim(),
+                        kind: moduleComponent.kind,
+                        isFunc: moduleComponent.kind.includes('function'),
+                        fullComponent: moduleComponent
+                    });
+                }
+            });
+            moduleComponentsMap.set(moduleName, processedComponents);
+        }
+    
+        // Main loop to process components
         components.forEach(component => {
-            for (const moduleName in this.componentsDataset) {
-                    const moduleComponents = this.componentsDataset[moduleName];
-                    const componentName = component['key.name'];
-                    const componentKind = component['key.kind'];
-                    let existingComponent = null;
-                    for (const moduleComponent of moduleComponents) {
-                        if (moduleComponent.name && componentName) {
-                            const baseModuleName = moduleComponent.name.split('(')[0].trim();
-                            const baseComponentName = componentName.split('(')[0].trim();
-                            const mcIsFunc = moduleComponent.kind.includes('function');
-                            if (
-                                (baseModuleName === baseComponentName &&
-                                mcIsFunc && componentKind.includes('expr'))
-                                ||
-                                (baseModuleName === baseComponentName &&
-                                moduleComponent.kind === componentKind)
-                            ) {
-                                existingComponent = moduleComponent;
-                                break;
+            const componentName = component['key.name'] && component['key.name'].split('(')[0].trim();
+            const componentKind = component['key.kind'];
+    
+            if (!componentName) return;
+    
+            moduleComponentsMap.forEach((moduleComponents, moduleName) => {
+                for (const { baseName, kind, isFunc, fullComponent} of moduleComponents) {
+                    if (baseName === componentName) {
+                        if ((isFunc && componentKind.includes('expr')) || kind === componentKind) {
+                            const metadata = this.extractMetadata(component, fullComponent, fileContent, filePath);
+                            if (metadata) {
+                                this.projectComponents.push(metadata);
                             }
+                            return; // Return early since we've found a match
                         }
                     }
-                    if (existingComponent) {
-                        // console.log(`Found a matching component: ${componentName}`);
-                        const metadata = this.extractMetadata(component, existingComponent, fileContent, filePath);
-                        if (metadata) {
-                            this.projectComponents.push(metadata);
-                        }
-                        break;
-                    }
-            }
+                }
+            });
         });
     }
-
+    
+    
 
     /**
      * Finds the line and column corresponding to the specified offset in the given file.
@@ -633,7 +750,7 @@ class SwiftScanner {
             metadata.filewiseLocation[filePath] = [{ line, column, offset: component["key.offset"] } ];
 
             // Save updated metadata to the dataset
-            this.codebaseComponents[metadataId] = metadata;
+            this.codebaseComponents.push(metadata);
             this.saveCodebaseComponents();
             return metadata;
         } catch (error) {
@@ -684,7 +801,6 @@ class SwiftScanner {
         const fs = require('fs');
         try {
             fs.writeFileSync(this.codebaseComponentsPath, JSON.stringify(this.codebaseComponents, null, 2));
-            fs.writeFileSync(this.datasetFilePath, JSON.stringify(this.componentsDataset, null, 2));
         } catch (error) {
             console.log(`Error saving dataset: ${error.message}`);
         }
@@ -695,6 +811,7 @@ class SwiftScanner {
      * @param {string} filePath - Path of the Swift file to extract components from.
      */
     async extractComponentsFromFile(filePath) {
+        console.log(`scanning file: ${filePath}`);
         try {
             // Read the content of the Swift file
             const fileContent = await fs.readFile(filePath, 'utf8');
@@ -705,54 +822,7 @@ class SwiftScanner {
         }
     }
 
-    getDebugYaml() {
-        const fss = require('fs');
-        const yaml = require('js-yaml');
-
-        fss.readFile('.build/debug.yaml', 'utf8', (err, fileData) => {
-        if (err) {
-            console.error('Error reading file:', err);
-            return;
-        }
-
-        try {
-            // Parse the YAML data
-            const data = yaml.load(fileData);
-            // Extract the modules from the commands data
-            const inputs = data.commands.PackageStructure.inputs;
-            const moduleKeys = Object.keys(data.commands).filter(
-                key=>key.startsWith('C.')
-                );
-            // combine modules with paths
-            const projectModulesList = {};
-            moduleKeys.map(
-                mod => projectModulesList[mod.substring(2, mod.lastIndexOf("-"))] = data.commands[mod].inputs[0]
-            );
-            this.projectModulesList = projectModulesList;
-
-
-            // filtering third party libraries
-            const thirdPartyModuleKeys = moduleKeys.filter(
-                mod => data.commands[mod].inputs[0].includes('.build/checkouts')
-            );
-            
-            const thirdPartyDependencies = {};
-
-            thirdPartyModuleKeys.map(
-                mod => thirdPartyDependencies[mod.substring(2, mod.lastIndexOf("-"))] = data.commands[mod].inputs[0]
-            );
-            this.thirdPartyDependencies = thirdPartyDependencies;
-
-        } catch (error) {
-            console.error('Error parsing YAML:', error);
-        }
-        });
-
-    }
-
 }
 
 module.exports = SwiftScanner;
-scanner = new SwiftScanner();
-scanner.initialize();
-scanner.extractComponentsFromFile('Sources/FigmaExportCore/AssetsFilter.swift');
+// scanner.extractComponentsFromFile('Tests/DownloadTests.swift');
