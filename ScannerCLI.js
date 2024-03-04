@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 const program = require('commander');
-const path = require('path'); // Import the path module
+const fs = require('fs');
+const path = require('path'); 
 const SwiftScanner = require('./SwiftScanner');
 
 // Set up the CLI program
@@ -30,12 +31,20 @@ program
         // Initialize the scanner
         console.log('Initializing scanner...');
         await scanner.initialize();
-
+        if (!fs.existsSync(scanner.datasetFilePath)) {
+            console.log(`creating ${scanner.datasetFilePath}`)
+            await scanner.generateDataset();
+            await scanner.saveDataset();
+        } else {
+            console.log(`loading ${scanner.datasetFilePath}`);
+            await scanner.loadDataset();
+        }
         // Resolve current working directory to get absolute file paths
         const cwd = process.cwd();
 
         // Array to store paths where components are saved
         const savedPaths = [];
+
 
         // Scan each specified file recursively
         console.log('Scanning files...');
@@ -52,20 +61,18 @@ program
         });
     });
 
-
-
 // Command to get available SPM modules
 program
     .command('modules')
     .description('Get available SPM modules')
-    .action(() => {
+    .action(async () => {
         const scanner = new SwiftScanner();
-        scanner.initialize();
+        await scanner.initialize();
         const availableModules = scanner.projectModulesList;
         if (availableModules.length > 0) {
             console.log("\nAvailable modules:\n");
             availableModules.forEach(module => {
-                console.log(` - name: ${module.name}\n - path: (${module.path})\n`);
+                console.log(` - name: ${module.name}\n - path: ${module.path}\n`);
             });
         } else {
             console.log("No modules available.");
