@@ -459,10 +459,6 @@ class SwiftScanner {
             this.componentsDataset[moduleName].push(component);
         });
     }
-    
-    
-    
-    
 
     /**
      * Get the abstract syntax tree (AST) from the Swift code.
@@ -751,7 +747,6 @@ class SwiftScanner {
 
             // Save updated metadata to the dataset
             this.codebaseComponents.push(metadata);
-            this.saveCodebaseComponents();
             return metadata;
         } catch (error) {
             console.log(`Error extracting metadata: ${error.message}`);
