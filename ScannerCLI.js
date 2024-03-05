@@ -53,6 +53,8 @@ program
             await scanner.scanFilesRecursively(absoluteFilePath, excludedFolders);
             savedPaths.push(scanner.codebaseComponentsPath);
         }
+        
+        scanner.saveCodebaseComponents();
 
         // Print scan completion message with saved paths
         console.log('Scan complete.');
