@@ -1,7 +1,5 @@
 // Required modules
 const { execSync } = require('child_process');
-const Parser = require('tree-sitter');
-const Swift = require('tree-sitter-swift');
 const fs = require("fs").promises;
 const path = require("path");
 
@@ -218,20 +216,6 @@ class SwiftScanner {
         }
     }
 
-
-
-    validPath(directoryPath) {
-        // Iterate through each module in the projectModulesList
-        for (const module of this.projectModulesList) {
-            // Check if the module's path is a subdirectory of the provided directory path
-            if (module.path.includes(directoryPath)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-
     /**
      * Scan files recursively method to recursively scan Swift files in a directory.
      * @param {string} filePath - Path of the file or directory to scan.
@@ -297,7 +281,6 @@ class SwiftScanner {
     }
 
 
-
     /**
      * Get project modules list method to get the list of project modules from Swift Package Manager.
      */
@@ -352,32 +335,6 @@ class SwiftScanner {
         }
     }
 
-    executeCommandSilent(command) {
-        try {
-            // Execute the command silently and capture both stdout and stderr
-            const output = execSync(command, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-            return output;
-        } catch (error) {
-            return error.stdout + error.stderr; // Return both stdout and stderr if command fails
-        }
-    }
-    
-    getSpmModules() {
-        try {
-            // Run the sourcekitten complete command with an invalid module name to get suggestions
-            const command = `sourcekitten complete --text "" --spm-module X24dDW_DCDDD33fdax -- ''`;
-            const output = this.executeCommandSilent(command);
-    
-            // Parse the error message to extract the available modules
-            this.availableModules = this.parseAvailableModules(output);
-    
-        } catch (error) {
-            this.logger.log(`Error getting available SPM modules: ${error.message}`);
-            return [];
-        }
-    }
-    
-
     /**
      * Extract third-party dependencies method to extract third-party dependencies from Swift Package Manager data.
      * @param {Object} jsonData - JSON data from Swift Package Manager.
@@ -407,31 +364,11 @@ class SwiftScanner {
     * @returns {boolean} - True if the module is a third-party dependency, false otherwise.
     */
 
-    
-
     isThirdParty(moduleName) {
         // Find the module by name
         const module = this.projectModulesList.find(mod => mod.name === moduleName);
         // Return the isThirdParty property if the module is found, otherwise return false
         return module ? module.isThirdParty : false;
-    }
-    
-
-    /**
-     * Get the module name based on the file path.
-     * @param {string} filePath - Path of the file.
-     * @returns {string|null} - Module name if found, null otherwise.
-     */
-    getModuleName(filePath) {
-        //console.log(filePath);
-        const parentDir = path.resolve(filePath);
-        //console.log(parentDir);
-        for (const module of this.projectModulesList) {
-            if (parentDir.includes(module.path)) {
-                return module.name;
-            }
-        }
-        return null;
     }
 
     /**
@@ -447,7 +384,6 @@ class SwiftScanner {
      * Update the dataset with new components.
      * @param {Array} components - Array of components.
      */
-    
     updateDataset(components) {
         components.forEach(component => {
             const moduleName = component.moduleName;
@@ -458,21 +394,6 @@ class SwiftScanner {
             // Add the component to the set
             this.componentsDataset[moduleName].push(component);
         });
-    }
-
-    /**
-     * Get the abstract syntax tree (AST) from the Swift code.
-     * @param {string} swiftCode - Swift code.
-     * @returns {Node|null} - Root node of the AST if successful, null otherwise.
-     */
-    getAst(swiftCode) {
-        try {
-            const tree = this.parser.parse(swiftCode);
-            return tree.rootNode;
-        } catch (error) {
-            console.log("Error:", error.message);
-            return null;
-        }
     }
 
     /**
@@ -504,40 +425,6 @@ class SwiftScanner {
             console.error(`Error reading or updating file ${filePath}:`, error.message);
             return null;
         }
-    }
-
-    /**
-     * Get the imports from the file.
-     * @param {Node} node - AST node.
-     * @param {Array} importedLibraries - Array to store imported libraries.
-     * @returns {Array} - Array of imported libraries.
-     */
-    getFileImports(node, importedLibraries = []) {
-        // Check the type of AST node
-        if (node.type === "import_declaration") {
-            // If it's an import declaration, extract the imported module name
-            const importStatement = node.text.trim();
-            const importMatch = importStatement.match(/import\s+([^@\s]+)/);
-            if (importMatch && importMatch[1]) {
-                const moduleName = importMatch[1].trim();
-                importedLibraries.push(moduleName);
-            }
-        } else if (node.type === "attribute") {
-            // If it's an attribute, check if it's a testable import and extract the module name
-            const attributeText = node.text.trim();
-            if (attributeText.startsWith("@testable import")) {
-                const importMatch = attributeText.match(/@testable\s+import\s+([^@\s]+)/);
-                if (importMatch && importMatch[1]) {
-                    const moduleName = importMatch[1].trim();
-                    importedLibraries.push(moduleName);
-                }
-            }
-        }
-        // Recursively traverse child nodes to find imports
-        node.children.forEach(child => {
-            this.getFileImports(child, importedLibraries);
-        });
-        return importedLibraries;
     }
 
     /**
@@ -656,8 +543,6 @@ class SwiftScanner {
             });
         });
     }
-    
-    
 
     /**
      * Finds the line and column corresponding to the specified offset in the given file.
@@ -754,12 +639,6 @@ class SwiftScanner {
         }
     }
 
-
-    /**
-     * Checks if the specified module belongs to the design system.
-     * @param {string} moduleName - Name of the module.
-     * @returns {boolean} - True if the module belongs to the design system, false otherwise.
-     */
     /**
      * Get the design system(s) matching the given module name.
      * @param {string} moduleName - The name of the module to check.
