@@ -21,8 +21,6 @@ class SwiftScanner {
         this.componentsDataset = {};
         this.scannedLibraries = new Set();
         this.datasetFilePath = "components_dataset.json";
-        this.parser = new Parser();
-        this.parser.setLanguage(Swift);
         this.projectModulesList = [];
         this.externalModules = {};
     }
