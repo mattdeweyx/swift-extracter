@@ -124,7 +124,7 @@ class SwiftScanner {
 
 
     async generateDataset() {
-        console.log('Generating a dataset of importable components...');
+        console.log('Creating dataset of available project components...');
         try {
             // Create an array to store all asynchronous tasks
             const tasks = this.projectModulesList.map(async module => {
