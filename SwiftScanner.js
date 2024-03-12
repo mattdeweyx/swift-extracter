@@ -11,8 +11,9 @@ class SwiftScanner {
      * Constructor for SwiftScanner.
      * @param {Array} designSystemModules - Array of design system modules.
      */
-    constructor() {
+    constructor(designSystemModules=[]) {
         // Initialize properties
+        this.designSystemModules = designSystemModules;
         this.modulesList = {};
         this.thirdPartyDependencies = [];
         this.codebaseComponents = [];
@@ -28,9 +29,8 @@ class SwiftScanner {
     /**
      * Initialize method to initialize the scanner.
      */
-    async initialize(designSystemModules=[]) {
+    async initialize() {
         try {
-            this.designSystemModules = designSystemModules;
             await this.initiateBuild();
             // Initialize project modules list
             await this.getDebugYaml(); // Wait for projectModulesList to be populated
