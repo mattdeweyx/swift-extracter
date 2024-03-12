@@ -23,6 +23,7 @@ program
         // Initialize the SwiftScanner with design system modules
         let scanner;
         if (designSystemModules.length > 0) {
+            console.log(`using desing systems: ${designSystemModules}`);
             scanner = new SwiftScanner(designSystemModules);
         } else {
             scanner = new SwiftScanner(); // Initialize without design system modules
