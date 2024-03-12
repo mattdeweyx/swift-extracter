@@ -17,11 +17,22 @@ we can do this by
 docker run --privileged --interactive --tty \
     --name swift-sourcekitten mattdeweyx/test-sourcekitten /bin/bash
 ```
+
+to use the tool
+
+```
+git clone https://github.com/mattdeweyx/swift-extracter
+cd swift-extracter
+chmod +x ScannerCLI.js
+mv ScannerCLI.js /usr/local/bin/ScannerCLI
+mv SwiftScanner.js /usr/local/bin/SwiftScanner
+```
+
 we then run the command to scan a file/folder in a certain swift project
 
 ### Scan Swift Project Files:
 ```
-node ScannerCLI.js scan <filePath...> [options]
+ScannerCLI scan <filePath...> [options]
 ```
 
 ### Scan Swift Project Directory:
