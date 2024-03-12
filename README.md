@@ -22,10 +22,9 @@ to use the tool
 
 ```
 git clone https://github.com/mattdeweyx/swift-extracter
-cd swift-extracter
-chmod +x ScannerCLI.js
-mv ScannerCLI.js /usr/local/bin/ScannerCLI
-mv SwiftScanner.js /usr/local/bin/SwiftScanner
+chmod +x swift-extracter/ScannerCLI.js
+mv swift-extracter/ScannerCLI.js /usr/local/bin/ScannerCLI
+mv swift-extracter/SwiftScanner.js /usr/local/bin/SwiftScanner
 ```
 
 we then run the command to scan a file/folder in a certain swift project
