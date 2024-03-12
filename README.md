@@ -14,8 +14,7 @@ swift build
 to quickly setup a test envoirment we can run a docker container with Swift compiler and sourcekitten library pre-installed
 we can do this by 
 ```
-docker run --privileged --interactive --tty \
-    --name swift-sourcekitten mattdeweyx/test-sourcekitten /bin/bash
+docker run --privileged --interactive --tty --name test-sourcekitten mattdeweyx/test-sourcekitten /bin/bash
 ```
 
 to use the tool
