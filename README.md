@@ -48,7 +48,8 @@ Scan Swift files and extract components. Provide one or more file paths to be sc
 
 ## Examples:
 ```
-node ScannerCLI.js scan -d UIKit,CoreData -e Tests,ThirdParty Sources/ExampleProject/File1.swift Sources/ExampleProject/Folder1
+node ScannerCLI.js scan -d UIKit -e Tests,ThirdParty Sources/ExampleProject/File1.swift
+node ScannerCLI.js scan -d UIKit,CoreData -e Tests,ThirdParty Sources/ExampleProject/
 node ScannerCLI.js scan Sources/ExampleProject/File1.swift
 ```
 
