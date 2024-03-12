@@ -33,7 +33,6 @@ program
         console.log('Initializing scanner...');
         await scanner.initialize();
         if (!fs.existsSync(scanner.datasetFilePath)) {
-            console.log(`creating ${scanner.datasetFilePath}`)
             await scanner.generateDataset();
             await scanner.saveDataset();
         } else {
